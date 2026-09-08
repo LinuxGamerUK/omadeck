@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "id": "com.github.linuxgameruk.omadeck",
+  "name": "OmaDeck",
+  "version": "1.0.0",
+  "author": "LinuxGamerUK",
+  "license": "MIT",
+  "description": "Usage deck for your AI accounts in the Omarchy bar — live 'percent used' meters and reset countdowns for OpenCode Zen and Ollama Cloud, ModelDeck-style.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaDeck",
+    "description": "AI usage deck: per-account rate-limit windows, reset countdowns, and cost, for OpenCode Zen and Ollama Cloud accounts.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 300,
+      "warnPercent": 80,
+      "criticalPercent": 95,
+      "showAccount": "worst",
+      "showCost": true
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 60,
+        "max": 3600,
+        "step": 60,
+        "defaultValue": 300
+      },
+      {
+        "key": "warnPercent",
+        "type": "integer",
+        "label": "Warn threshold (percent used)",
+        "min": 50,
+        "max": 99,
+        "step": 5,
+        "defaultValue": 80
+      },
+      {
+        "key": "criticalPercent",
+        "type": "integer",
+        "label": "Critical threshold (percent used)",
+        "min": 75,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 95
+      },
+      {
+        "key": "showAccount",
+        "type": "enum",
+        "label": "Bar shows",
+        "options": ["worst", "none"],
+        "defaultValue": "worst"
+      },
+      {
+        "key": "showCost",
+        "type": "boolean",
+        "label": "Show Ollama Cloud spend in the deck",
+        "defaultValue": true
+      }
+    ]
+  },
+  "repository": "https://github.com/LinuxGamerUK/omadeck"
+}
