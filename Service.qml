@@ -129,6 +129,15 @@ Item {
   readonly property string discoveryScript:
     "set -o pipefail; python3 - <<'PYEOF' 2>&1 | head -c " + capDiscovery + "\n" +
     "import json, os\n" +
+    "\n" +
+    "def zenLabel(name):\n" +
+    "    if name == 'opencode':\n" +
+    "        return 'OpenCode Zen'\n" +
+    "    if name == 'opencode-go':\n" +
+    "        return 'OpenCode Go'\n" +
+    "    if name == 'opencode-go-2':\n" +
+    "        return 'OpenCode Go 2'\n" +
+    "    return 'OpenCode ' + name.split('opencode-', 1)[1].replace('-', ' ').title() if name.startswith('opencode-') else 'OpenCode'\n" +
     "path = os.path.join(os.path.expanduser('~'), '.local/share/opencode/auth.json')\n" +
     "try:\n" +
     "    with open(path) as f:\n" +
@@ -144,7 +153,7 @@ Item {
     "            if not isinstance(key, str) or len(key) < 8:\n" +
     "                continue\n" +
     "            if name.startswith('opencode'):\n" +
-    "                print(json.dumps({'id': name, 'kind': 'zen', 'label': name, 'key': key}))\n" +
+    "                print(json.dumps({'id': name, 'kind': 'zen', 'label': zenLabel(name), 'key': key}))\n" +
     "            elif name == 'ollama-cloud':\n" +
     "                print(json.dumps({'id': name, 'kind': 'ollama', 'label': 'Ollama Cloud', 'key': key}))\n" +
     "PYEOF"
@@ -341,6 +350,7 @@ Item {
       }
       list.push({
         id: sanitize(truncate(label, 48)),
+        accountId: sanitize(truncate(r.id, 64)),
         kind: r.id === "ollama-cloud" ? "ollama" : "zen",
         windows: windows,
         cost: sanitize(truncate(extra.cost || "", 16)),
@@ -430,12 +440,13 @@ Item {
     id: zenUsage1
     property string accountId: ""
     property string keyToWrite: ""
+    property string buffer: ""
     stdinEnabled: true
     running: false
     command: ["timeout", "-k", "2", "" + root.netTimeoutSec,
               "bash", "-c", root.curlBase + "https://opencode.ai/zen/go/v1/usage 2>&1 | head -c " + root.capUsage]
-    stdout: SplitParser { onRead: function(line) { root._onUsageLine(parent.accountId, line) } }
-    onExited: function(exitCode) { root._onUsageExit(parent.accountId, "zen", exitCode) }
+    stdout: SplitParser { onRead: function(line) { root._slotLine(zenUsage1, line) } }
+    onExited: function(exitCode) { root._slotExit(zenUsage1, "zen", exitCode) }
     onStarted: {
       write('Authorization: Bearer ' + keyToWrite + '\n')
       keyToWrite = ""
@@ -446,12 +457,13 @@ Item {
     id: zenUsage2
     property string accountId: ""
     property string keyToWrite: ""
+    property string buffer: ""
     stdinEnabled: true
     running: false
     command: ["timeout", "-k", "2", "" + root.netTimeoutSec,
               "bash", "-c", root.curlBase + "https://opencode.ai/zen/go/v1/usage 2>&1 | head -c " + root.capUsage]
-    stdout: SplitParser { onRead: function(line) { root._onUsageLine(parent.accountId, line) } }
-    onExited: function(exitCode) { root._onUsageExit(parent.accountId, "zen", exitCode) }
+    stdout: SplitParser { onRead: function(line) { root._slotLine(zenUsage2, line) } }
+    onExited: function(exitCode) { root._slotExit(zenUsage2, "zen", exitCode) }
     onStarted: {
       write('Authorization: Bearer ' + keyToWrite + '\n')
       keyToWrite = ""
@@ -462,12 +474,13 @@ Item {
     id: zenUsage3
     property string accountId: ""
     property string keyToWrite: ""
+    property string buffer: ""
     stdinEnabled: true
     running: false
     command: ["timeout", "-k", "2", "" + root.netTimeoutSec,
               "bash", "-c", root.curlBase + "https://opencode.ai/zen/go/v1/usage 2>&1 | head -c " + root.capUsage]
-    stdout: SplitParser { onRead: function(line) { root._onUsageLine(parent.accountId, line) } }
-    onExited: function(exitCode) { root._onUsageExit(parent.accountId, "zen", exitCode) }
+    stdout: SplitParser { onRead: function(line) { root._slotLine(zenUsage3, line) } }
+    onExited: function(exitCode) { root._slotExit(zenUsage3, "zen", exitCode) }
     onStarted: {
       write('Authorization: Bearer ' + keyToWrite + '\n')
       keyToWrite = ""
@@ -478,12 +491,13 @@ Item {
     id: zenUsage4
     property string accountId: ""
     property string keyToWrite: ""
+    property string buffer: ""
     stdinEnabled: true
     running: false
     command: ["timeout", "-k", "2", "" + root.netTimeoutSec,
               "bash", "-c", root.curlBase + "https://opencode.ai/zen/go/v1/usage 2>&1 | head -c " + root.capUsage]
-    stdout: SplitParser { onRead: function(line) { root._onUsageLine(parent.accountId, line) } }
-    onExited: function(exitCode) { root._onUsageExit(parent.accountId, "zen", exitCode) }
+    stdout: SplitParser { onRead: function(line) { root._slotLine(zenUsage4, line) } }
+    onExited: function(exitCode) { root._slotExit(zenUsage4, "zen", exitCode) }
     onStarted: {
       write('Authorization: Bearer ' + keyToWrite + '\n')
       keyToWrite = ""
@@ -494,12 +508,13 @@ Item {
     id: ollamaUsage
     property string accountId: ""
     property string keyToWrite: ""
+    property string buffer: ""
     stdinEnabled: true
     running: false
     command: ["timeout", "-k", "2", "" + root.netTimeoutSec,
               "bash", "-c", root.curlBase + "https://ollama.com/api/usage 2>&1 | head -c " + root.capUsage]
-    stdout: SplitParser { onRead: function(line) { root._onUsageLine(parent.accountId, line) } }
-    onExited: function(exitCode) { root._onUsageExit(parent.accountId, "ollama", exitCode) }
+    stdout: SplitParser { onRead: function(line) { root._slotLine(ollamaUsage, line) } }
+    onExited: function(exitCode) { root._slotExit(ollamaUsage, "ollama", exitCode) }
     onStarted: {
       write('Authorization: Bearer ' + keyToWrite + '\n')
       keyToWrite = ""
@@ -507,20 +522,22 @@ Item {
   }
 
   // ── Usage buffers, per slot ─────────────────────────────────────────
-  property var _usageBuffers: ({})
+  // Each slot process owns its accountId and buffer; handlers receive the
+  // slot object explicitly (SplitParser's `parent` is the Service, not the
+  // Process, so indirect parent-scoped keying is unreliable).
 
-  function _onUsageLine(accountId, line) {
+  function _slotLine(slot, line) {
     var s = String(line || "")
-    var buf = String(_usageBuffers[accountId] || "")
-    if (buf.length + s.length + 1 <= capUsage) _usageBuffers[accountId] = buf + s + "\n"
+    if (slot.buffer.length + s.length + 1 <= capUsage) slot.buffer += s + "\n"
   }
 
-  function _onUsageExit(accountId, kind, exitCode) {
-    var buf = String(_usageBuffers[accountId] || "")
-    _usageBuffers[accountId] = ""
+  function _slotExit(slot, kind, exitCode) {
+    var buf = String(slot.buffer || "")
+    slot.buffer = ""
+    var accountId = String(slot.accountId || "")
     // Stale event from a slot reaped outside an active cycle: nothing to
     // finish, and a fresh cycle already owns the latch.
-    if (String(accountId) === "" || _outstanding <= 0) return
+    if (accountId === "" || _outstanding <= 0) return
     if (exitCode === 0) {
       _parseUsageBuffer(buf, accountId, kind)
     } else {

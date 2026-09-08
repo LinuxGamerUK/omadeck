@@ -265,6 +265,16 @@ Panel {
                 }
 
                 Text {
+                  visible: modelData.accountId !== "" && modelData.accountId !== modelData.id
+                  text: modelData.accountId
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  textFormat: Text.PlainText
+                  Layout.alignment: Qt.AlignVCenter
+                }
+
+                Text {
                   visible: modelData.kind === "ollama" && deck.showCost && modelData.cost !== ""
                   text: deck.formatCost(modelData.cost) + " spend"
                   color: root.dim
