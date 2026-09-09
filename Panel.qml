@@ -137,6 +137,7 @@ Panel {
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
+              textFormat: Text.PlainText
               font.bold: true
               elide: Text.ElideRight
             }

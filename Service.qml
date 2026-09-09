@@ -124,8 +124,9 @@ Item {
   }
 
   // discovery: read-only scan of the user's own auth store. The key list
-  // is written to stdout as JSON lines; keys are then fed to curl via
-  // stdin (-K -), so no key ever appears in a process argv or cmdline.
+  // is written to stdout as JSON lines; each key is then piped over stdin
+  // into a 0600 temp header file for curl (see curlBase), so no key ever
+  // appears in a process argv or cmdline.
   readonly property string discoveryScript:
     "set -o pipefail; python3 - <<'PYEOF' 2>&1 | head -c " + capDiscovery + "\n" +
     "import json, os\n" +
