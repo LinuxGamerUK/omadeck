@@ -266,6 +266,16 @@ Panel {
                 }
 
                 Text {
+                  visible: modelData.tier !== ""
+                  text: modelData.tier
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  textFormat: Text.PlainText
+                  Layout.alignment: Qt.AlignVCenter
+                }
+
+                Text {
                   visible: modelData.accountId !== "" && modelData.accountId !== modelData.id
                   text: modelData.accountId
                   color: root.dim
@@ -336,13 +346,82 @@ Panel {
 
             // No-window note
             Text {
-              visible: modelData.windows.length === 0
+              visible: modelData.windows.length === 0 && modelData.note === ""
               width: parent.width
               text: "No usage windows reported."
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               textFormat: Text.PlainText
+            }
+
+            // Auth/status note from the harness record (actionable, e.g.
+            // "Run `claude auth login` to restore authoritative usage.")
+            Text {
+              visible: modelData.note !== ""
+              width: parent.width
+              text: modelData.note
+              color: root.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+            }
+
+            // Prepaid balance meter (agent-usage balance ledger)
+            Column {
+              visible: modelData.balance !== null
+              width: parent.width
+              spacing: Style.space(3)
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  Layout.fillWidth: true
+                  text: "Prepaid balance"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  textFormat: Text.PlainText
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  text: {
+                    var b = modelData.balance
+                    if (!b) return ""
+                    var t = deck.formatCost(b.remaining) + " left of " + deck.formatCost(b.funded)
+                    return t + (b.estimated ? " (est.)" : "")
+                  }
+                  color: {
+                    var b = modelData.balance
+                    if (!b || b.funded <= 0) return root.foreground
+                    var usedFrac = 1 - (b.remaining / b.funded)
+                    return usedFrac >= 0.9 ? root.urgent
+                      : (usedFrac >= (root.deck.warnPercent / 100) ? Color.accent : root.foreground)
+                  }
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  textFormat: Text.PlainText
+                  Layout.alignment: Qt.AlignVCenter
+                }
+              }
+
+              Meter {
+                width: parent.width
+                value: {
+                  var b = modelData.balance
+                  if (!b || b.funded <= 0) return 0
+                  return (b.funded - b.remaining) / b.funded
+                }
+                alarming: {
+                  var b = modelData.balance
+                  if (!b || b.funded <= 0) return false
+                  return (1 - (b.remaining / b.funded)) >= 0.9
+                }
+              }
             }
 
             // Ollama model breakdown

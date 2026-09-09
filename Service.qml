@@ -69,6 +69,9 @@ Item {
   // truncation into exit 141, discarded by the exitCode === 0 guard.
   readonly property int capDiscovery: 2048
   readonly property int capUsage: 65536
+  readonly property int capAgents: 65536
+  readonly property int agentsTimeoutSec: 15
+  readonly property int agentsWatchdogMs: 20000
 
   // ── Sanitize external strings for safe display ──────────────────────
   function sanitize(str) {
@@ -99,16 +102,26 @@ Item {
     return home + "/.local/share/opencode/auth.json"
   }
 
+  function agentsUsageDir() {
+    var home = Quickshell.env("HOME") || "/"
+    var xdg = Quickshell.env("XDG_STATE_HOME") || ""
+    return (xdg !== "" ? xdg : home + "/.local/state") + "/omarchy/agents/usage"
+  }
+
   // ── Refresh cycle ───────────────────────────────────────────────────
   // 1. discover: parse auth.json, emit one JSON line per account
-  // 2. for each account: usage fetch (key piped over stdin, never argv)
-  // 3. assemble when the outstanding-fetch latch hits zero
+  // 2. omarchy agent-usage records: run the official Omarchy collector
+  //    (claude / codex / fireworks / any future collector) and read the
+  //    JSON records it writes — provider-agnostic by Omarchy's own design
+  // 3. for each auth.json account: usage fetch (key piped over stdin)
+  // 4. assemble when the outstanding-work latch hits zero
 
   function refresh() {
     if (busy) return
     busy = true
     lastError = ""
     launch(discoverProcess, discoverWatchdog)
+    launch(agentsUsageProcess, agentsUsageWatchdog)
   }
 
   function launch(process, watchdog) {
@@ -159,6 +172,86 @@ Item {
     "                print(json.dumps({'id': name, 'kind': 'ollama', 'label': 'Ollama Cloud', 'key': key}))\n" +
     "PYEOF"
 
+  // ── Omarchy agent-usage records ─────────────────────────────────────
+  // Omarchy ships one collector per AI harness (claude, codex, fireworks —
+  // and any future one) that writes a display-ready JSON record into
+  // ~/.local/state/omarchy/agents/usage/. Running the official
+  // omarchy-agent-usage-update tool (user-scope, no extra privileges)
+  // refreshes those records; we then read them read-only. percent arrives
+  // as a 0-1 fraction; resetsAt as ISO or ""; balance is the prepaid
+  // ledger {remaining, funded, spent, currency, estimated}.
+  readonly property string agentsUsageScript:
+    "set -o pipefail; omarchy-agent-usage-update --limits-only >/dev/null 2>&1; " +
+    "python3 - <<'PYEOF' 2>&1 | head -c " + capAgents + "\n" +
+    "import json, os, glob\n" +
+    "d = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'), 'omarchy/agents/usage')\n" +
+    "try:\n" +
+    "    files = sorted(glob.glob(os.path.join(d, '*.json')))\n" +
+    "except Exception:\n" +
+    "    files = []\n" +
+    "for p in files[:8]:\n" +
+    "    try:\n" +
+    "        with open(p) as f:\n" +
+    "            rec = json.load(f)\n" +
+    "    except Exception:\n" +
+    "        continue\n" +
+    "    if not isinstance(rec, dict):\n" +
+    "        continue\n" +
+    "    rid = str(rec.get('id') or os.path.basename(p)[:-5])\n" +
+    "    if rid == '':\n" +
+    "        continue\n" +
+    "    wins = []\n" +
+    "    lim = rec.get('limits')\n" +
+    "    if isinstance(lim, list):\n" +
+    "        for w in lim[:8]:\n" +
+    "            if not isinstance(w, dict):\n" +
+    "                continue\n" +
+    "            pct = w.get('percent')\n" +
+    "            if not isinstance(pct, (int, float)):\n" +
+    "                continue\n" +
+    "            wins.append({'name': str(w.get('title') or w.get('label') or 'Limit')[:32],\n" +
+    "                         'percent': float(pct) * 100.0,\n" +
+    "                         'resetsAt': str(w.get('resetsAt') or ''),\n" +
+    "                         'status': 'ok'})\n" +
+    "    bal = rec.get('balance')\n" +
+    "    extra = {'tier': str(rec.get('tierLabel') or '')[:32],\n" +
+    "             'note': str(rec.get('authHelpText') or rec.get('usageStatusText') or '')[:160]}\n" +
+    "    if isinstance(bal, dict) and isinstance(bal.get('funded'), (int, float)) and bal.get('funded', 0) > 0:\n" +
+    "        extra['balance'] = {'remaining': float(bal.get('remaining') or 0),\n" +
+    "                            'funded': float(bal.get('funded')),\n" +
+    "                            'spent': float(bal.get('spent') or 0),\n" +
+    "                            'currency': str(bal.get('currency') or 'USD')[:8],\n" +
+    "                            'estimated': bal.get('estimated') is True}\n" +
+    "    print(json.dumps({'id': rid[:64], 'label': str(rec.get('name') or rid)[:48], 'windows': wins, 'extra': extra}))\n" +
+    "PYEOF"
+
+  property string _agentsBuffer: ""
+
+  function _onAgentsLine(line) {
+    var str = String(line || "")
+    if (_agentsBuffer.length + str.length + 1 <= capAgents) _agentsBuffer += str + "\n"
+  }
+
+  function _parseAgentsBuffer() {
+    var raw = truncate(_agentsBuffer.trim(), capAgents)
+    _agentsBuffer = ""
+    var records = []
+    var lines = raw.split("\n")
+    for (var i = 0; i < lines.length && records.length < maxAccounts; i++) {
+      var line = lines[i].trim()
+      if (line.indexOf("{") !== 0) continue
+      try {
+        var rec = JSON.parse(line)
+        if (rec && typeof rec.id === "string" && rec.id !== "") {
+          records.push(rec)
+        }
+      } catch (e) {
+        // skip malformed lines
+      }
+    }
+    _finishAgentsRead(records, true, "")
+  }
+
   // ── Discovery buffer ────────────────────────────────────────────────
   property string _discoverBuffer: ""
   readonly property int _discoverBufferMax: 2048
@@ -194,13 +287,8 @@ Item {
     credentialsReady = found.length > 0
     _resetFetchState(found)
     if (!credentialsReady) {
-      accounts = []
-      worstPercent = -1
-      worstLabel = ""
-      anyData = false
-      busy = false
-      lastRefreshText = ""
-      lastError = "No AI accounts found.\nExpected keys in " + sanitize(authPath()) + "\n(opencode* or ollama-cloud). Run: opencode auth login"
+      // auth.json has nothing, but the Omarchy agent-usage read may still
+      // land: wait for the full latch before declaring an empty deck.
       return
     }
     for (var j = 0; j < found.length; j++) {
@@ -225,7 +313,31 @@ Item {
     _labelMap = map
     _results = []
     _errors = []
-    _outstanding = _pendingAccounts.length
+    // One extra outstanding unit: the Omarchy agent-usage record read.
+    _outstanding = _pendingAccounts.length + 1
+    _agentsReadDone = false
+  }
+
+  property bool _agentsReadDone: false
+
+  function _finishAgentsRead(records, ok, errMsg) {
+    if (_agentsReadDone) return
+    _agentsReadDone = true
+    if (ok) {
+      var map = _labelMap
+      for (var i = 0; i < records.length && i < maxAccounts; i++) {
+        var rec = records[i]
+        map[String(rec.id)] = rec.label
+        _results.push({ id: rec.id, windows: rec.windows, extra: rec.extra })
+      }
+      _labelMap = map
+    } else if (errMsg !== "") {
+      // Silent when the directory simply does not exist yet: a fresh
+      // machine without the agents panel has no records at all.
+      if (_errors.length < maxAccounts) _errors.push({ id: "omarchy agents", error: errMsg })
+    }
+    _outstanding = _outstanding - 1
+    if (_outstanding <= 0) _assemble()
   }
 
   function _finishAccount(accountId, windows, extra, ok, errMsg) {
@@ -320,18 +432,24 @@ Item {
 
   function _assemble() {
     var list = []
+    var seen = {}
     var worst = -1
     var wLabel = ""
     for (var i = 0; i < _results.length && i < maxAccounts; i++) {
       var r = _results[i]
+      var rkey = String(r.id)
+      if (seen[rkey]) continue
+      seen[rkey] = true
       var label = _labelMap[String(r.id)] || r.id
       var windows = []
       for (var k = 0; k < r.windows.length && k < maxWindows; k++) {
         var w = r.windows[k]
+        // agent-usage records carry resetsAt (ISO) instead of resetInMs
+        var rInMs = typeof w.resetInMs === "number" ? w.resetInMs : _isoToMs(w.resetsAt)
         windows.push({
           name: sanitize(truncate(w.name, 32)),
-          percent: w.percent,
-          resetInMs: w.resetInMs,
+          percent: clampPercent(w.percent),
+          resetInMs: rInMs,
           status: sanitize(truncate(w.status, 24))
         })
         if (w.percent > worst) {
@@ -349,10 +467,31 @@ Item {
           cost: sanitize(truncate(models[m].cost, 16))
         })
       }
+      var bal = extra.balance || null
+      var safeBalance = null
+      if (bal && typeof bal.funded === "number" && bal.funded > 0) {
+        safeBalance = {
+          remaining: bal.remaining,
+          funded: bal.funded,
+          spent: bal.spent,
+          currency: sanitize(truncate(bal.currency, 8)),
+          estimated: bal.estimated === true
+        }
+        var usedFrac = 1 - (bal.remaining / bal.funded)
+        if (usedFrac > worst) {
+          worst = clampPercent(usedFrac * 100)
+          wLabel = label + " \u00b7 balance"
+        }
+      }
+      var kind = r.id === "ollama-cloud" ? "ollama"
+        : (String(r.id).indexOf("opencode") === 0 ? "zen" : "agent")
       list.push({
         id: sanitize(truncate(label, 48)),
         accountId: sanitize(truncate(r.id, 64)),
-        kind: r.id === "ollama-cloud" ? "ollama" : "zen",
+        kind: kind,
+        tier: sanitize(truncate(extra.tier || "", 32)),
+        note: sanitize(truncate(extra.note || "", 160)),
+        balance: safeBalance,
         windows: windows,
         cost: sanitize(truncate(extra.cost || "", 16)),
         models: safeModels
@@ -368,7 +507,11 @@ Item {
     for (var e2 = 0; e2 < _errors.length; e2++) {
       msgs.push(sanitize(truncate(_errors[e2].id, 32)) + ": " + _errors[e2].error)
     }
-    lastError = msgs.length > 0 ? truncate(msgs.join(" \u00b7 "), 200) : ""
+    if (list.length === 0 && msgs.length === 0) {
+      msgs.push("No AI accounts found. Sign in with: opencode auth login, " +
+        "claude auth login, or codex login")
+    }
+    lastError = msgs.length > 0 ? truncate(msgs.join(" \u00b7 "), 240) : ""
     _resetFetchState([])
   }
 
@@ -433,6 +576,30 @@ Item {
     interval: root.watchdogMs
     repeat: false
     onTriggered: root.reap(discoverProcess, discoverWatchdog)
+  }
+
+  Process {
+    id: agentsUsageProcess
+    running: false
+    command: ["timeout", "-k", "2", "" + root.agentsTimeoutSec,
+              "bash", "-c", root.agentsUsageScript]
+    stdout: SplitParser { onRead: function(line) { root._onAgentsLine(line) } }
+    onExited: function(exitCode) {
+      agentsUsageWatchdog.stop()
+      if (exitCode === 0) root._parseAgentsBuffer()
+      else {
+        root._agentsBuffer = ""
+        root._finishAgentsRead([], false,
+          exitCode === 124 || exitCode === 137 ? "usage collector timed out" : "")
+      }
+    }
+  }
+
+  Timer {
+    id: agentsUsageWatchdog
+    interval: root.agentsWatchdogMs
+    repeat: false
+    onTriggered: root.reap(agentsUsageProcess, agentsUsageWatchdog)
   }
 
   // One static process slot per supported account. Keys are piped over

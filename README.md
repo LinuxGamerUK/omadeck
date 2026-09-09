@@ -6,15 +6,18 @@ and dropdown panel.
 
 ![OmaDeck panel](assets/screenshot.png)
 
-OmaDeck watches the provider accounts you have already signed into with
-[opencode](https://opencode.ai) and shows, per account, every rate-limit
-window the provider reports:
+OmaDeck merges two local sources — Omarchy's per-harness usage records
+and the `opencode` credential store — and shows, per account, every
+rate-limit window the provider reports:
 
 - **OpenCode Zen accounts** (`opencode*` keys) — rolling, weekly, and
   monthly windows with exact reset times ("resets in 4h 59m", "rate
   limited · resets in 5d").
 - **Ollama Cloud** — monthly usage percent, last-4-weeks spend, and a
   per-model request/cost breakdown.
+- **Claude Code** — session + weekly windows and model-scoped caps.
+- **Codex** — primary/secondary rate-limit windows and plan tier.
+- **Fireworks** — prepaid balance (funded vs spent).
 
 The **bar** shows the deck glyph plus the worst window's percentage,
 colour-coded: plain when healthy, accent at your warn threshold, red at
@@ -47,47 +50,51 @@ omarchy plugin remove com.github.linuxgameruk.omadeck
   packages, no AUR builds, nothing downloaded at runtime.
 - At least one signed-in provider account (see below).
 
-## How account detection works (provider-agnostic design)
+## Harness coverage (provider-agnostic by design)
 
-OmaDeck does **not** ship a list of subscriptions or hardcode your
-accounts. On every refresh it scans **one local file**:
+OmaDeck hardcodes **no subscriptions**. It merges two local, user-scope
+sources on every refresh:
 
-```
-~/.local/share/opencode/auth.json
-```
+**1. Omarchy's own agent-usage records** — `~/.local/state/omarchy/agents/usage/`.
+Omarchy ships one collector per AI harness (`omarchy-agent-usage-*`);
+OmaDeck runs the official `omarchy-agent-usage-update --limits-only`
+tool (user-scope, no privileges, the same tool the built-in Agents panel
+uses) and reads the display-ready JSON records it writes:
 
-This is the credential store `opencode auth login` maintains. Every
-account entry whose name starts with `opencode` is polled as an OpenCode
-Zen account; an entry named `ollama-cloud` is polled as Ollama Cloud.
-That means:
+| Harness | Covered via | Limits shown |
+|---|---|---|
+| **Claude Code** | Anthropic OAuth usage endpoint | 5-hour session + 7-day weekly windows, model-scoped caps |
+| **Codex** | Codex app-server RPC | primary + secondary rate-limit windows, plan tier |
+| **Fireworks** | Fireworks billing / funded-credit estimate | prepaid balance meter (funded vs spent) |
+| **any future collector** | the same record contract | automatic — OmaDeck shows whatever records appear |
 
-- **Multiple subscriptions work out of the box.** If you have two Zen
-  plans, a Go plan, and Ollama Cloud — each key in `auth.json` becomes
-  its own card. OmaDeck found four accounts on the machine it was built
-  on without any configuration.
-- **New accounts appear on the next refresh.** Sign in once with
-  `opencode auth login`, and the deck picks the key up automatically.
-- **Unknown OpenCode account names** (future plans like `opencode-go-3`)
-  still match the `opencode*` prefix and get a readable label derived
-  from the account name.
-- **Accounts you're not subscribed to simply don't appear** — detection
-  is a local scan of keys you actually hold, not a probe of provider
-  catalogs.
+Unauthenticated harnesses show a card with the harness's own actionable
+sign-in instruction (e.g. "Run `claude auth login`…") instead of meters,
+so new users see exactly what to do next.
 
-What it deliberately does **not** support yet: Claude Code
-(`~/.claude`) and Codex CLI (`~/.codex`) subscriptions. Those CLIs store
-credentials differently (no `auth.json`), and native usage endpoints
-differ per provider; if and when they're added, they will follow the
-same local-scan + per-provider-adapter pattern. Everything else about
-the deck (meters, thresholds, countdowns, cards) is provider-agnostic
-by design.
+**2. OmaDeck's own credential scan** — `~/.local/share/opencode/auth.json`
+(the store `opencode auth login` maintains), which covers the
+subscriptions Omarchy's collectors don't:
 
-If you have no supported keys, the widget dims and the panel tells you
-exactly what to do:
+| Provider | Covered via | Limits shown |
+|---|---|---|
+| **OpenCode Zen** (any `opencode*` account: Zen, Go, Go 2, future plans) | `auth.json` key | rolling / weekly / monthly windows with reset times |
+| **Ollama Cloud** | `auth.json` key (`ollama-cloud`) | monthly usage %, 4-week spend, per-model request/cost |
 
-```sh
-opencode auth login   # pick OpenCode Zen or Ollama Cloud
-```
+Accounts you sign into appear on the next refresh with zero
+configuration; subscriptions you don't hold simply don't appear —
+detection is a scan of keys you actually hold, not a probe of provider
+catalogs.
+
+**Launcher-style harnesses without usage APIs** — Omarchy also ships
+agents like Pi, Oh My Pi, Ori, Crush, Grok CLI, OpenClaw, Antigravity,
+Hermes, GitHub Copilot, Cursor CLI, and Muse Code. Most of these are
+launchers over providers (or their vendors expose no rate-limit API a
+local key can query), so there is nothing usage-shaped to scan today.
+When any of them gains an Omarchy collector — or an official usage
+endpoint reachable with the credentials the CLI already holds — OmaDeck
+picks it up automatically through source 1 or the `auth.json` scan,
+with no OmaDeck update needed.
 
 ## Usage
 
@@ -131,7 +138,9 @@ Configured from Omarchy's bar settings (widget settings form):
   ever in argv, `/proc/*/cmdline`, or any repo file.
 - **No privileged operations.** No `sudo`, no `pkexec`, no system
   services, no config files written anywhere. The plugin runs entirely
-  as your user.
+  as your user. The one external command it runs is Omarchy's own
+  `omarchy-agent-usage-update` — the same user-scope collector the
+  built-in Agents panel uses.
 - **No runtime code execution from outside.** Nothing is cloned, built,
   fetched, or executed beyond the two hardcoded API GETs and the local
   discovery script.
@@ -150,6 +159,8 @@ Configured from Omarchy's bar settings (widget settings form):
 
 - `python3` (discovery; base Arch install)
 - `curl` (API polling; base Arch install)
+- `omarchy-agent-usage-update` (ships with Omarchy; covers Claude Code,
+  Codex, Fireworks, and future collectors)
 - Omarchy Quattro shell with Quickshell
 
 ## License

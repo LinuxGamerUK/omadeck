@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "com.github.linuxgameruk.omadeck",
   "name": "OmaDeck",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "LinuxGamerUK",
   "license": "MIT",
-  "description": "Usage deck for your AI accounts in the Omarchy bar — live 'percent used' meters and reset countdowns for OpenCode Zen and Ollama Cloud, ModelDeck-style.",
+  "description": "Usage deck for your AI accounts in the Omarchy bar \u2014 live 'percent used' meters and reset countdowns for OpenCode Zen, Ollama Cloud, Claude Code, Codex, and Fireworks, ModelDeck-style.",
   "kinds": [
     "bar-widget"
   ],
@@ -57,7 +57,10 @@
         "key": "showAccount",
         "type": "enum",
         "label": "Bar shows",
-        "options": ["worst", "none"],
+        "options": [
+          "worst",
+          "none"
+        ],
         "defaultValue": "worst"
       },
       {
