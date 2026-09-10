@@ -142,7 +142,26 @@ Item {
   // appears in a process argv or cmdline.
   readonly property string discoveryScript:
     "set -o pipefail; python3 - <<'PYEOF' 2>&1 | head -c " + capDiscovery + "\n" +
-    "import json, os\n" +
+    "import json, os, stat\n" +
+    "\n" +
+    "def safe_read_json(path, max_bytes):\n" +
+    "    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_CLOEXEC', 0))\n" +
+    "    try:\n" +
+    "        st = os.fstat(fd)\n" +
+    "        if not stat.S_ISREG(st.st_mode):\n" +
+    "            return None\n" +
+    "        if st.st_uid != os.getuid():\n" +
+    "            return None\n" +
+    "        if st.st_nlink > 1:\n" +
+    "            return None\n" +
+    "        if st.st_size > max_bytes:\n" +
+    "            return None\n" +
+    "        data = os.read(fd, max_bytes + 1)\n" +
+    "        if len(data) > max_bytes:\n" +
+    "            return None\n" +
+    "        return json.loads(data.decode('utf-8', 'replace'))\n" +
+    "    finally:\n" +
+    "        os.close(fd)\n" +
     "\n" +
     "def zenLabel(name):\n" +
     "    if name == 'opencode':\n" +
@@ -153,23 +172,22 @@ Item {
     "        return 'OpenCode Go 2'\n" +
     "    return 'OpenCode ' + name.split('opencode-', 1)[1].replace('-', ' ').title() if name.startswith('opencode-') else 'OpenCode'\n" +
     "path = os.path.join(os.path.expanduser('~'), '.local/share/opencode/auth.json')\n" +
+    "d = None\n" +
     "try:\n" +
-    "    with open(path) as f:\n" +
-    "        d = json.load(f)\n" +
+    "    d = safe_read_json(path, 262144)\n" +
     "except Exception:\n" +
-    "    pass\n" +
-    "else:\n" +
-    "    if isinstance(d, dict):\n" +
-    "        for name, rec in d.items():\n" +
-    "            if not isinstance(rec, dict):\n" +
-    "                continue\n" +
-    "            key = rec.get('key') or ''\n" +
-    "            if not isinstance(key, str) or len(key) < 8:\n" +
-    "                continue\n" +
-    "            if name.startswith('opencode'):\n" +
-    "                print(json.dumps({'id': name, 'kind': 'zen', 'label': zenLabel(name), 'key': key}))\n" +
-    "            elif name == 'ollama-cloud':\n" +
-    "                print(json.dumps({'id': name, 'kind': 'ollama', 'label': 'Ollama Cloud', 'key': key}))\n" +
+    "    d = None\n" +
+    "if isinstance(d, dict):\n" +
+    "    for name, rec in d.items():\n" +
+    "        if not isinstance(rec, dict):\n" +
+    "            continue\n" +
+    "        key = rec.get('key') or ''\n" +
+    "        if not isinstance(key, str) or len(key) < 8:\n" +
+    "            continue\n" +
+    "        if name.startswith('opencode'):\n" +
+    "            print(json.dumps({'id': name, 'kind': 'zen', 'label': zenLabel(name), 'key': key}))\n" +
+    "        elif name == 'ollama-cloud':\n" +
+    "            print(json.dumps({'id': name, 'kind': 'ollama', 'label': 'Ollama Cloud', 'key': key}))\n" +
     "PYEOF"
 
   // ── Omarchy agent-usage records ─────────────────────────────────────
@@ -183,7 +201,26 @@ Item {
   readonly property string agentsUsageScript:
     "set -o pipefail; omarchy-agent-usage-update --limits-only >/dev/null 2>&1; " +
     "python3 - <<'PYEOF' 2>&1 | head -c " + capAgents + "\n" +
-    "import json, os, glob\n" +
+    "import json, os, glob, stat\n" +
+    "\n" +
+    "def safe_read_json(path, max_bytes):\n" +
+    "    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_CLOEXEC', 0))\n" +
+    "    try:\n" +
+    "        st = os.fstat(fd)\n" +
+    "        if not stat.S_ISREG(st.st_mode):\n" +
+    "            return None\n" +
+    "        if st.st_uid != os.getuid():\n" +
+    "            return None\n" +
+    "        if st.st_nlink > 1:\n" +
+    "            return None\n" +
+    "        if st.st_size > max_bytes:\n" +
+    "            return None\n" +
+    "        data = os.read(fd, max_bytes + 1)\n" +
+    "        if len(data) > max_bytes:\n" +
+    "            return None\n" +
+    "        return json.loads(data.decode('utf-8', 'replace'))\n" +
+    "    finally:\n" +
+    "        os.close(fd)\n" +
     "d = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'), 'omarchy/agents/usage')\n" +
     "try:\n" +
     "    files = sorted(glob.glob(os.path.join(d, '*.json')))\n" +
@@ -191,8 +228,7 @@ Item {
     "    files = []\n" +
     "for p in files[:8]:\n" +
     "    try:\n" +
-    "        with open(p) as f:\n" +
-    "            rec = json.load(f)\n" +
+    "        rec = safe_read_json(p, 262144)\n" +
     "    except Exception:\n" +
     "        continue\n" +
     "    if not isinstance(rec, dict):\n" +
